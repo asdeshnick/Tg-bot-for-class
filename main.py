@@ -3,8 +3,7 @@ import telebot
 from telebot import types
 import random
 
-# Задаем токен бота и подключаемся к Telegram API
-token = ''  # Ваш токен брать его у ботфатзер
+token = ''
 bot = telebot.TeleBot(token)
 
 # Функция для подключения к базе данных
@@ -15,7 +14,6 @@ def connect_db():
 def create_users_table():
     with connect_db() as conn:
         cursor = conn.cursor()
-        # SQL-запрос для создания таблицы
         create_table_query = '''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -30,15 +28,14 @@ def get_access(user_id):
     with connect_db() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT user_group_id, user_name FROM users WHERE user_id=?', (user_id,))
-        result = cursor.fetchone()
-        return result
+        return cursor.fetchone()
 
 # Функция для добавления пользователя в базу данных 
 def add_user(user_id, user_name):
     with connect_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('INSERT INTO users (user_id, user_name, user_group_id) VALUES (?, ?, ?)',
-                       (user_id, user_name, '0'))  # Новые пользователи начинают с группы '0'
+        cursor.execute('INSERT OR IGNORE INTO users (user_id, user_name, user_group_id) VALUES (?, ?, ?)',
+                      (user_id, user_name, 0))
         conn.commit()
 
 @bot.message_handler(commands=['start'])
@@ -46,61 +43,73 @@ def handle_start_command(message):
     user_id = message.chat.id
     access = get_access(user_id)
 
+    # Создаем клавиатуру
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    btn1 = types.KeyboardButton("👋 Поздороваться")
+    btn2 = types.KeyboardButton("проверка на лоха")
+    btn3 = types.KeyboardButton("Создавал Андрей")
+    markup.add(btn1, btn2, btn3)
+    
     if access:
-        bot.send_message(message.chat.id, 'Вы уже зарегистрированы как {}.'.format(access[1])) 
+        bot.send_message(user_id, f'Вы уже зарегистрированы как {access[1]}.', reply_markup=markup)
     else:
-        msg = bot.send_message(message.chat.id, 'Привет! Пожалуйста, введите Ваше имя для регистрации:')
+        msg = bot.send_message(user_id, 'Привет! Пожалуйста, введите ваше имя для регистрации:', reply_markup=markup)
         bot.register_next_step_handler(msg, process_name)
-        btn_greet = types.KeyboardButton("/play")
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add(btn_greet)
-        
-    # Добавляем кнопки после сообщения
-    
-    
-@bot.message_handler(content_types=['text'])
-def get_text_messages(message):
-    if message.text == '👋 Поздороваться':
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)  # создание новых кнопок
-        btn_check = types.KeyboardButton('Сосал?')
-        btn_creator = types.KeyboardButton('Создавал Андрей')
-        bot.send_message(message.from_user.id, 'мой github ' + '[ссылка](https://github.com/asdeshnick)', parse_mode='Markdown')
-        markup.add(btn_check, btn_creator)
-        bot.send_message(message.from_user.id, '❓ Выберите ', reply_markup=markup)  # ответ бота
-
-    elif message.text == 'Сосал?':  
-        loh = ["Сосал", "Нет"]
-        loh_bot = random.choice(loh)
-        bot.send_message(message.from_user.id, loh_bot)  # ответ бота
 
 def process_name(message):
     user_id = message.chat.id
     user_name = message.text.strip()
-    print(user_name, user_id)
-
-    # Добавляем пользователя в базу данных
     add_user(user_id, user_name)
+    
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    btn1 = types.KeyboardButton("👋 Поздороваться")
+    btn2 = types.KeyboardButton("проверка на лоха")
+    btn3 = types.KeyboardButton("Создавал Андрей")
+    markup.add(btn1, btn2, btn3)
+    
+    bot.send_message(user_id, f'Спасибо, {user_name}! Вы успешно зарегистрированы.', reply_markup=markup)
 
-    bot.send_message(message.chat.id, 'Спасибо, {}! Вы успешно зарегистрированы.'.format(user_name))
+@bot.message_handler(content_types=['text'])
+def handle_text(message):
+    if message.text == '👋 Поздороваться':
+        markup = types.InlineKeyboardMarkup()
+        github_btn = types.InlineKeyboardButton("GitHub", url='https://github.com/asdeshnick')
+        markup.add(github_btn)
+        bot.send_message(message.chat.id, 'Мой GitHub:', reply_markup=markup)
+        
+    elif message.text == 'проверка на лоха':
+        loh = ["Лох", "Не лох"]
+        bot.send_message(message.chat.id, random.choice(loh))
+        
+    elif message.text == 'Создавал Андрей':
+        bot.send_message(message.chat.id, 'Да, этого бота создал Андрей!')
 
-@bot.message_handler(commands=['admin']) # adminку мне в падлу делать, но ее сделать легко 
+@bot.message_handler(commands=['admin'])
 def handle_admin_command(message):
     access = get_access(message.chat.id)
-
-    if access:
-        if access[0] == '1':
-            bot.send_message(message.chat.id, 'Привет Admin!')
-        else:
-            bot.send_message(message.chat.id, 'Привет User!')
+    
+    if not access:
+        return bot.send_message(message.chat.id, 'Вы не зарегистрированы в системе!')
+    
+    if access[0] == 1:
+        bot.send_message(message.chat.id, 'Привет Admin!')
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("Управление пользователями", callback_data='manage_users')
+        btn2 = types.InlineKeyboardButton("Просмотр статистики", callback_data='view_stats')
+        markup.add(btn1, btn2)
+        bot.send_message(message.chat.id, "Выберите действие:", reply_markup=markup)
     else:
-        bot.send_message(message.chat.id, 'Вы не зарегистрированы в системе!')
+        bot.send_message(message.chat.id, 'Привет User! У вас нет прав администратора.')
 
-# Запуск бота
+@bot.callback_query_handler(func=lambda call: True)
+def handle_query(call):
+    if call.data == 'manage_users':
+        bot.answer_callback_query(call.id, "Вы выбрали управление пользователями.")
+        # Здесь можно добавить логику управления пользователями
+    elif call.data == 'view_stats':
+        bot.answer_callback_query(call.id, "Вы выбрали просмотр статистики.")
+        # Здесь можно добавить логику просмотра статистики
+
 if __name__ == '__main__':
     create_users_table()
-    try:
-        bot.polling(none_stop=True)
-    except Exception as e:
-        print(f"Ошибка: {e}")
-        bot.stop_bot()
-
+    bot.polling(none_stop=True)
