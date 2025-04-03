@@ -1,4 +1,4 @@
-# Tg-bot-for-sosal
+# Tg-bot-for-class
 
 #### скачай python "https://www.python.org/downloads/release/python-3120/"
 
